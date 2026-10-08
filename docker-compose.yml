@@ -1,0 +1,4 @@
+include:
+  - path: docker-compose-qdrant.yml
+  - path: docker-compose-langfuse.yml
+    env_file: docker-compose-langfuse.env

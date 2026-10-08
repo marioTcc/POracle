@@ -1,0 +1,10 @@
+{
+  "datasetName": "broken",
+  "records": [
+    {
+      "category": "scope",
+      "question": "Which projects do you know about?",
+      "anwser": "Two."
+    }
+  ]
+}

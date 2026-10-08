@@ -1,0 +1,256 @@
+{
+  "datasetName": "spring-ai-security-golden-dataset",
+  "datasetDescription": "Golden questions and answers about the two ingested projects, spring-ai and spring-security: knowledge-base scope, project overviews, and technical details taken from their source code.",
+  "records": [
+    {
+      "category": "scope",
+      "question": "Which projects do you know about?",
+      "answer": "The knowledge base contains two projects: spring-ai and spring-security."
+    },
+    {
+      "category": "scope",
+      "question": "Do you have the source code of Spring Boot or Spring Kafka in your knowledge base?",
+      "answer": "No. The knowledge base only contains the spring-ai and spring-security projects, so there is no information about the Spring Boot or Spring Kafka source code."
+    },
+    {
+      "category": "scope",
+      "question": "Which of the projects you know should I use to add a chatbot backed by a large language model to my application?",
+      "answer": "spring-ai. It provides a Spring-friendly API and abstractions for developing AI applications, including chat models, the ChatClient fluent API, embeddings, vector stores and tool calling."
+    },
+    {
+      "category": "scope",
+      "question": "Which of the projects you know should I use to restrict some endpoints to users with a given role?",
+      "answer": "spring-security. It provides authentication and authorization for Spring applications, including request-level authorization through the security filter chain and method-level authorization with annotations such as @PreAuthorize."
+    },
+    {
+      "category": "scope",
+      "question": "Which of the projects you know can validate JWT bearer tokens sent to a REST API?",
+      "answer": "spring-security, through its OAuth2 resource server support: the oauth2-resource-server module contains BearerTokenAuthenticationFilter, and the oauth2-jose module contains the JwtDecoder implementation NimbusJwtDecoder."
+    },
+    {
+      "category": "spring-ai-overview",
+      "question": "What is Spring AI?",
+      "answer": "Spring AI provides a Spring-friendly API and abstractions for developing AI applications. Its goal is to apply Spring ecosystem design principles, such as portability and modular design, to the AI domain, and to promote strongly-typed data structures and APIs. At its core it connects enterprise data and APIs with AI models."
+    },
+    {
+      "category": "spring-ai-overview",
+      "question": "Which Spring Boot version does the main branch of Spring AI target?",
+      "answer": "The main branch is Spring AI 2.x, which targets Spring Boot 4.x. Spring AI 1.1.x targets Spring Boot 3.5.x."
+    },
+    {
+      "category": "spring-ai-overview",
+      "question": "Which AI model providers have a module in the spring-ai repository?",
+      "answer": "The models directory contains modules for Anthropic, Amazon Bedrock and Bedrock Converse, DeepSeek, ElevenLabs, Google GenAI (chat, embedding and image), Mistral AI, Ollama, OpenAI, PostgresML, Stability AI, ONNX Transformers and Vertex AI embedding."
+    },
+    {
+      "category": "spring-ai-overview",
+      "question": "Which vector stores does Spring AI integrate with?",
+      "answer": "The vector-stores directory contains integrations for Azure, Bedrock Knowledge Base, Cassandra, Chroma, Coherence, Couchbase, Elasticsearch, GemFire, MariaDB, Milvus, MongoDB Atlas, Neo4j, OpenSearch, Oracle, PGVector, Pinecone, Qdrant, Redis (plus a Redis semantic cache), S3 Vectors, Typesense and Weaviate."
+    },
+    {
+      "category": "spring-ai-overview",
+      "question": "Which document readers does Spring AI provide to load content for ingestion?",
+      "answer": "The document-readers directory provides four modules: Jsoup (JsoupDocumentReader, for HTML), Markdown (MarkdownDocumentReader), PDF (PagePdfDocumentReader and ParagraphPdfDocumentReader) and Tika (TikaDocumentReader)."
+    },
+    {
+      "category": "spring-ai-overview",
+      "question": "Where can Spring AI persist chat memory?",
+      "answer": "Chat memory is stored through a ChatMemoryRepository. Besides the default InMemoryChatMemoryRepository, the memory-repositories directory provides implementations for Cassandra, JDBC, MongoDB, Neo4j and Redis."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "In spring-ai, which interface is the main entry point of the fluent API for talking to a chat model?",
+      "answer": "ChatClient, in the spring-ai-client-chat module (package org.springframework.ai.chat.client). It is created with ChatClient.create(chatModel) or ChatClient.builder(chatModel), and a request starts with prompt(). Its default implementation is DefaultChatClient."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "In spring-ai, which interface do all chat model implementations share, and what is its main method?",
+      "answer": "ChatModel, in the spring-ai-model module (package org.springframework.ai.chat.model). It extends Model<Prompt, ChatResponse> and StreamingChatModel. Its main method is ChatResponse call(Prompt prompt); stream(Prompt) returns a Flux<ChatResponse>."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "Which interface abstracts vector databases in spring-ai, and which operations does it define?",
+      "answer": "VectorStore, in the spring-ai-vector-store module (package org.springframework.ai.vectorstore). It extends DocumentWriter and VectorStoreRetriever and defines add(List<Document>) to store documents, delete by id list or by filter expression, and similarity search."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "What are the default topK and similarity threshold of a SearchRequest in spring-ai?",
+      "answer": "The default topK is 4 (SearchRequest.DEFAULT_TOP_K) and the default similarity threshold is 0.0 (SearchRequest.SIMILARITY_THRESHOLD_ACCEPT_ALL), which accepts every result."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "Which spring-ai advisor adds documents retrieved from a vector store to the prompt?",
+      "answer": "QuestionAnswerAdvisor, in the spring-ai-vector-store-advisor module (package org.springframework.ai.chat.client.advisor.vectorstore). It puts the retrieved documents in the context under the key qa_retrieved_documents and accepts a filter through qa_filter_expression. The spring-ai-rag module also offers the more modular RetrievalAugmentationAdvisor."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "Which building blocks does RetrievalAugmentationAdvisor combine in spring-ai?",
+      "answer": "RetrievalAugmentationAdvisor, in the spring-ai-rag module, combines query transformers, a DocumentRetriever, a DocumentJoiner, document post-processors and a QueryAugmenter. It stores the retrieved documents in the context under the key rag_document_context."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "How many messages does MessageWindowChatMemory keep by default in spring-ai?",
+      "answer": "20. MessageWindowChatMemory (package org.springframework.ai.chat.memory, spring-ai-model module) has DEFAULT_MAX_MESSAGES = 20."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "Which spring-ai advisor adds the conversation history to the prompt, and how is the conversation identified?",
+      "answer": "MessageChatMemoryAdvisor, in the spring-ai-client-chat module. The conversation is identified by the context key ChatMemory.CONVERSATION_ID, whose value is chat_memory_conversation_id."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "What are the default settings of TokenTextSplitter in spring-ai?",
+      "answer": "TokenTextSplitter (spring-ai-commons, package org.springframework.ai.transformer.splitter) defaults to a chunk size of 800 tokens, a minimum chunk size of 350 characters, a minimum chunk length to embed of 5, a maximum of 10000 chunks, keeping separators, and the CL100K_BASE encoding."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "How do I expose a Java method as a tool the model can call in spring-ai?",
+      "answer": "Annotate the method with @Tool (org.springframework.ai.tool.annotation.Tool, spring-ai-model module). Its attributes are name, description, returnDirect (default false) and resultConverter (default DefaultToolCallResultConverter)."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "What is the default base URL used by the Ollama integration in spring-ai, and which class is the chat model?",
+      "answer": "The default base URL is http://localhost:11434 (OllamaApiConstants.DEFAULT_BASE_URL). The chat model is OllamaChatModel, in the models/spring-ai-ollama module."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "Can spring-ai compute embeddings locally without calling an external service?",
+      "answer": "Yes. TransformersEmbeddingModel, in the models/spring-ai-transformers module, runs an ONNX model in process. By default it uses the all-MiniLM-L6-v2 sentence transformer."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "Which spring-ai class converts the model output into a Java object?",
+      "answer": "BeanOutputConverter (package org.springframework.ai.converter, spring-ai-model module). It implements StructuredOutputConverter and generates a JSON schema from the target class or parameterized type, which is used to transform the output into that type."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "What are the default table, schema, index type and distance type of PgVectorStore in spring-ai?",
+      "answer": "PgVectorStore (vector-stores/spring-ai-pgvector-store) uses the table vector_store in the public schema by default, with an HNSW index and the COSINE_DISTANCE distance type."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "Is there an in-memory vector store in spring-ai, and can it be persisted?",
+      "answer": "Yes. SimpleVectorStore, in the spring-ai-vector-store module, keeps documents in memory and can be persisted and restored with save(File) and load(File) or load(Resource)."
+    },
+    {
+      "category": "spring-ai-technical",
+      "question": "Which annotations does spring-ai provide for Model Context Protocol servers?",
+      "answer": "The mcp/mcp-annotations module provides annotations such as @McpTool, @McpToolParam, @McpResource, @McpPrompt, @McpArg and @McpComplete, plus client-side ones such as @McpSampling, @McpElicitation, @McpLogging and @McpProgress."
+    },
+    {
+      "category": "spring-security-overview",
+      "question": "What is Spring Security?",
+      "answer": "Spring Security provides security services for the Spring IO Platform: authentication, authorization and protection against common attacks for Spring applications. Its README states that Spring Security 6.0 requires Spring 6.0 and Java 17 as a minimum. It is built with Gradle."
+    },
+    {
+      "category": "spring-security-overview",
+      "question": "Which modules make up the spring-security repository?",
+      "answer": "The main modules are access, acl, aspects, cas, config, core, crypto, data, kerberos, ldap, messaging, oauth2, rsocket, saml2, taglibs, test, web and webauthn."
+    },
+    {
+      "category": "spring-security-overview",
+      "question": "Which OAuth2 modules does spring-security contain?",
+      "answer": "The oauth2 directory contains oauth2-core, oauth2-client, oauth2-jose, oauth2-resource-server and oauth2-authorization-server."
+    },
+    {
+      "category": "spring-security-overview",
+      "question": "Does spring-security support passkeys?",
+      "answer": "Yes, through WebAuthn. The webauthn module contains the implementation, including WebAuthnAuthenticationFilter in package org.springframework.security.web.webauthn.authentication."
+    },
+    {
+      "category": "spring-security-overview",
+      "question": "How does spring-security support one-time token login?",
+      "answer": "Through OneTimeTokenService (core module, package org.springframework.security.authentication.ott), which defines generate(GenerateOneTimeTokenRequest) and consume(OneTimeTokenAuthenticationToken). Implementations are InMemoryOneTimeTokenService and JdbcOneTimeTokenService, and authentication is performed by OneTimeTokenAuthenticationProvider."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "Which interface represents a chain of security filters in spring-security?",
+      "answer": "SecurityFilterChain, in the web module (package org.springframework.security.web). It defines matches(HttpServletRequest) and getFilters(). Its default implementation is DefaultSecurityFilterChain, and FilterChainProxy delegates each request to the first matching chain."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "Which class is the main implementation of AuthenticationManager in spring-security?",
+      "answer": "ProviderManager, in the core module (package org.springframework.security.authentication). It delegates to a list of AuthenticationProvider instances, can fall back to a parent AuthenticationManager, and erases credentials after authentication by default."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "Which class handles username and password authentication against a UserDetailsService in spring-security?",
+      "answer": "DaoAuthenticationProvider, in the core module (package org.springframework.security.authentication.dao). It extends AbstractUserDetailsAuthenticationProvider, loads the user through a UserDetailsService and checks the password with a PasswordEncoder."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "Which method must I implement to load users from my own store in spring-security?",
+      "answer": "UserDetailsService.loadUserByUsername(String username), which returns a UserDetails and throws UsernameNotFoundException. Provided implementations include InMemoryUserDetailsManager and JdbcUserDetailsManager."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "Which algorithm does PasswordEncoderFactories.createDelegatingPasswordEncoder() use to encode new passwords in spring-security?",
+      "answer": "bcrypt. The method builds a DelegatingPasswordEncoder whose encoding id is bcrypt, storing passwords as {id}encodedPassword. It can still verify other formats such as argon2, pbkdf2, scrypt, noop, sha256 and legacy ones like MD5."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "What is the default strength of BCryptPasswordEncoder in spring-security?",
+      "answer": "10 log rounds. The no-argument constructor falls back to BCrypt's default of 10; a custom strength must be between 4 and 31."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "What are the default URL and parameter names of form login in spring-security?",
+      "answer": "UsernamePasswordAuthenticationFilter (web module) processes POST requests to /login and reads the username and password request parameters. It only accepts POST by default."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "Which HTTP methods are exempt from CSRF protection by default in spring-security?",
+      "answer": "GET, HEAD, TRACE and OPTIONS. CsrfFilter's default matcher requires a CSRF token for every other method."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "What are the default cookie and header names of CookieCsrfTokenRepository in spring-security?",
+      "answer": "The cookie is XSRF-TOKEN, the header is X-XSRF-TOKEN and the request parameter is _csrf. The cookie is HttpOnly by default; withHttpOnlyFalse() creates a repository whose cookie can be read by JavaScript."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "What are the default header and parameter names of HttpSessionCsrfTokenRepository in spring-security?",
+      "answer": "The header is X-CSRF-TOKEN and the request parameter is _csrf."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "What is the default strategy of SecurityContextHolder in spring-security, and how can it be changed?",
+      "answer": "MODE_THREADLOCAL. The other strategies are MODE_INHERITABLETHREADLOCAL and MODE_GLOBAL, and the strategy can be selected with the spring.security.strategy system property."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "Which annotations does @EnableMethodSecurity activate by default in spring-security?",
+      "answer": "The pre/post annotations such as @PreAuthorize, because prePostEnabled defaults to true. securedEnabled and jsr250Enabled default to false. @PreAuthorize is evaluated by PreAuthorizeAuthorizationManager through AuthorizationManagerBeforeMethodInterceptor."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "How does spring-security turn the scopes of a JWT into granted authorities?",
+      "answer": "With JwtGrantedAuthoritiesConverter (oauth2-resource-server module). It reads the scope or scp claim and prefixes each value with SCOPE_."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "What is the default logout URL in spring-security?",
+      "answer": "/logout, processed by LogoutFilter (web module, package org.springframework.security.web.authentication.logout)."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "What are the remember-me defaults in spring-security?",
+      "answer": "The cookie and the request parameter are both named remember-me, and the token is valid for two weeks (1209600 seconds). These defaults are defined in AbstractRememberMeServices, which TokenBasedRememberMeServices extends."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "What happens in spring-security when an anonymous user requests a protected resource?",
+      "answer": "ExceptionTranslationFilter handles it. For an AuthenticationException, or an AccessDeniedException raised for an anonymous or remember-me user, it starts authentication through the AuthenticationEntryPoint. For an AccessDeniedException raised for a fully authenticated user, it delegates to the AccessDeniedHandler."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "What is the default role prefix in spring-security?",
+      "answer": "ROLE_. For example hasRole('ADMIN') checks for the authority ROLE_ADMIN."
+    },
+    {
+      "category": "spring-security-technical",
+      "question": "How does spring-security protect against session fixation by default?",
+      "answer": "It uses ChangeSessionIdAuthenticationStrategy, which changes the session id after authentication while keeping the existing session."
+    }
+  ]
+}

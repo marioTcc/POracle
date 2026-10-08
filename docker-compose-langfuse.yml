@@ -1,0 +1,127 @@
+x-langfuse-environment: &langfuse-environment
+  DATABASE_URL: postgresql://langfuse:${POSTGRES_PASSWORD}@langfuse-db:5432/langfuse
+  SALT: ${SALT}
+  REDIS_CONNECTION_STRING: redis://langfuse-redis:6379
+  CLICKHOUSE_URL: http://langfuse-clickhouse:8123
+  CLICKHOUSE_MIGRATION_URL: clickhouse://langfuse-clickhouse:9000
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+  CLICKHOUSE_CLUSTER_ENABLED: "false"
+  LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse-events
+  LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://langfuse-minio:9000
+  LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
+  LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: "true"
+  AWS_ACCESS_KEY_ID: minioadmin
+  AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+
+services:
+  langfuse-db:
+    image: postgres:16-alpine
+    container_name: langfuse-db
+    restart: always
+    environment:
+      POSTGRES_USER: langfuse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: langfuse
+    volumes:
+      - langfuse_db_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - ai-network
+
+  langfuse-redis:
+    image: redis:7.2-alpine
+    container_name: langfuse-redis
+    restart: always
+    networks:
+      - ai-network
+
+  langfuse-clickhouse:
+    image: clickhouse/clickhouse-server:25.12
+    container_name: langfuse-clickhouse
+    restart: always
+    environment:
+      CLICKHOUSE_USER: clickhouse
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+    networks:
+      - ai-network
+
+  langfuse-minio:
+    image: quay.io/minio/minio:latest
+    container_name: langfuse-minio
+    restart: always
+    ports:
+      - "9090:9090"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - langfuse_minio_data:/data
+    command: server /data --console-address ":9090" --address ":9000"
+    networks:
+      - ai-network
+
+  langfuse-minio-init:
+    image: quay.io/minio/mc:latest
+    container_name: langfuse-minio-init
+    depends_on:
+      - langfuse-minio
+    networks:
+      - ai-network
+    entrypoint: >
+      /bin/sh -c "
+      until (/usr/bin/mc alias set myminio http://langfuse-minio:9000 minioadmin ${MINIO_ROOT_PASSWORD}) do echo 'Waiting for MinIO...' && sleep 1; done;
+      /usr/bin/mc mb --ignore-existing myminio/langfuse-events;
+      exit 0;
+      "
+
+  langfuse:
+    image: langfuse/langfuse:4
+    container_name: langfuse
+    restart: always
+    ports:
+      - "3000:3000"
+    depends_on:
+      - langfuse-db
+      - langfuse-redis
+      - langfuse-clickhouse
+      - langfuse-minio-init
+    networks:
+      - ai-network
+    environment:
+      <<: *langfuse-environment
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      LANGFUSE_INIT_ORG_ID: local-org
+      LANGFUSE_INIT_ORG_NAME: Local Organization
+      LANGFUSE_INIT_PROJECT_ID: local-project
+      LANGFUSE_INIT_PROJECT_NAME: Local Project
+      LANGFUSE_INIT_USER_EMAIL: admin@localhost.local
+      LANGFUSE_INIT_USER_PASSWORD: ${LANGFUSE_INIT_USER_PASSWORD}
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: ${LANGFUSE_INIT_PROJECT_PUBLIC_KEY}
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: ${LANGFUSE_INIT_PROJECT_SECRET_KEY}
+
+  langfuse-worker:
+    image: langfuse/langfuse-worker:4
+    container_name: langfuse-worker
+    restart: always
+    depends_on:
+      - langfuse-db
+      - langfuse-redis
+      - langfuse-clickhouse
+      - langfuse-minio-init
+    networks:
+      - ai-network
+    environment: *langfuse-environment
+
+volumes:
+  langfuse_db_data:
+  langfuse_clickhouse_data:
+  langfuse_minio_data:
+
+networks:
+  ai-network:
+    name: ai-network
