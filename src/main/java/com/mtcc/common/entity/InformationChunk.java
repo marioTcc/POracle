@@ -24,6 +24,9 @@ public class InformationChunk {
     private String chunkingStrategy;
     private String context;
     private String ingestionId;
+    private String localPath;
+    private String repositoryUrl;
+    private String revision;
 
     public String toEmbeddingText() {
         final StringBuilder embeddingText = new StringBuilder("Project: ").append(projectName);

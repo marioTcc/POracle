@@ -42,6 +42,10 @@ public class RagService {
         return ragServiceImpl.findChunksByType(informationType, limit);
     }
 
+    public Mono<List<InformationChunk>> findChunksByPath(final String projectName, final String filePath) {
+        return ragServiceImpl.findChunksByPath(projectName, filePath);
+    }
+
     public Mono<Map<String, Long>> countChunksByProject() {
         return ragServiceImpl.countChunksByProject();
     }

@@ -14,6 +14,9 @@ public class GitHubClientProperties {
     @Value("${GITHUB.CLONE.ALL.BRANCHES}")
     private Boolean cloneAllBranches;
 
+    @Value("${GITHUB.API.URL:https://api.github.com}")
+    private String githubApiUrl;
+
     @Value("${GITHUB.CLONE.DEPTH}")
     private Integer cloneDepth;
 }

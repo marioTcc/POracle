@@ -2,6 +2,7 @@ package com.mtcc.project.extractor.serviceimpl;
 
 import com.mtcc.common.entity.InformationChunk;
 import com.mtcc.common.entity.InformationType;
+import com.mtcc.project.extractor.config.ChunkingProperties;
 import com.mtcc.project.extractor.config.TSLanguageConfig;
 import com.mtcc.project.extractor.entity.Project;
 import com.mtcc.project.extractor.serviceimpl.interfaces.IChunkingServiceImpl;
@@ -29,6 +30,7 @@ import java.util.stream.Stream;
 import static com.mtcc.common.entity.InformationChunk.buildChunk;
 import static com.mtcc.project.extractor.util.FileUtils.getLowerCaseExtension;
 import static com.mtcc.project.extractor.util.FileUtils.getRelativePath;
+import static com.mtcc.project.extractor.util.OutlineUtils.keepFirstLines;
 
 @Slf4j
 @Service("codeChunkingServiceImpl")
@@ -36,10 +38,16 @@ import static com.mtcc.project.extractor.util.FileUtils.getRelativePath;
 public class CodeChunkingServiceImpl implements IChunkingServiceImpl {
 
     private static final String CHUNK_CAPTURE = "chunk";
+    private static final String STRATEGY = "code-outline";
+    private static final String ENTRY_SEPARATOR = "\n\n";
+    private static final String LINE_END = "\n";
+    private static final String WINDOWS_LINE_END = "\r\n";
     private static final int MIN_CHUNK_CHARS = 10;
+    private static final int MAX_WHOLE_DECLARATION_CHARS = 300;
     private static final String PACKAGE_KEYWORD = "package";
     private static final String STATEMENT_END = ";";
     private static final String CLASS_BODY = "class_body";
+    private static final String IN_LABEL = "In ";
     private static final String FIELDS_LABEL = "Fields:\n";
     private static final String METHODS_LABEL = "Methods: ";
     private static final Set<String> OUTLINED_DECLARATIONS = Set.of("class_declaration", "object_declaration",
@@ -58,6 +66,7 @@ public class CodeChunkingServiceImpl implements IChunkingServiceImpl {
 
     private final Map<String, TSLanguageConfig> tsConfig;
     private final IIOServiceImpl ioService;
+    private final ChunkingProperties chunkingProperties;
 
     @Override
     public Flux<InformationChunk> chunkFile(
@@ -66,20 +75,18 @@ public class CodeChunkingServiceImpl implements IChunkingServiceImpl {
                 .filter(tsConfig::containsKey)
                 .flatMapMany(ext -> ioService.readText(filePath)
                         .publishOn(Schedulers.boundedElastic())
-                        .flatMapMany(source -> this.extractSpecificChunk(source, ext))
-                        .map(chunk -> buildChunk(project.getProjectName(), getRelativePath(project, filePath), ext,
-                                infoType, chunk.getText(),
-                                chunk.getScope().isEmpty() ? filePath.getFileName().toString() : chunk.getScope(), "code")))
-                .doOnSubscribe(subscription -> log.debug("Chunking {} as {} by its declarations", filePath.getFileName(), infoType))
-                .doOnError(error -> log.debug("Cannot chunk {} by its declarations", filePath, error));
+                        .map(source -> source.replace(WINDOWS_LINE_END, LINE_END))
+                        .flatMap(source -> Mono.fromCallable(() -> parseOutline(tsConfig.get(ext), source)))
+                        .filter(outline -> outline.getText().length() >= MIN_CHUNK_CHARS)
+                        .map(outline -> buildChunk(project.getProjectName(), getRelativePath(project, filePath), ext,
+                                infoType, keepFirstLines(outline.getText(), chunkingProperties.getFileOutlineMaxChars()),
+                                outline.getScope().isEmpty() ? filePath.getFileName().toString() : outline.getScope(),
+                                STRATEGY)))
+                .doOnSubscribe(subscription -> log.debug("Outlining {} as {} by its declarations", filePath.getFileName(), infoType))
+                .doOnError(error -> log.debug("Cannot outline {} by its declarations", filePath, error));
     }
 
-    private Flux<CodeChunk> extractSpecificChunk(final String source, final String extension) {
-        return Mono.fromCallable(() -> parseChunks(tsConfig.get(extension), source))
-                .flatMapIterable(chunks -> chunks);
-    }
-
-    private synchronized List<CodeChunk> parseChunks(final TSLanguageConfig languageConfig, final String source) {
+    private synchronized CodeOutline parseOutline(final TSLanguageConfig languageConfig, final String source) {
         final byte[] sourceBytes = source.getBytes(StandardCharsets.UTF_8);
 
         return Try.withResources(() -> languageConfig.getParser().parseString(null, source), TSQueryCursor::new)
@@ -87,10 +94,19 @@ public class CodeChunkingServiceImpl implements IChunkingServiceImpl {
                     final String packageName = getPackageName(tree.getRootNode(), sourceBytes);
                     cursor.exec(languageConfig.getQuery(), tree.getRootNode());
 
-                    return getChunkNodes(cursor, languageConfig.getQuery()).stream()
-                            .map(chunkNode -> toCodeChunk(chunkNode, sourceBytes, packageName))
-                            .filter(chunk -> chunk.getText().strip().length() >= MIN_CHUNK_CHARS)
+                    final List<TSNode> chunkNodes = getChunkNodes(cursor, languageConfig.getQuery()).stream()
+                            .filter(chunkNode -> !isListedInClassOutline(chunkNode))
                             .toList();
+                    final List<TSNode> wholeNodes = chunkNodes.stream().filter(this::isKeptWhole).toList();
+
+                    return CodeOutline.builder()
+                            .scope(packageName)
+                            .text(chunkNodes.stream()
+                                    .filter(chunkNode -> wholeNodes.stream().noneMatch(wholeNode -> isInside(chunkNode, wholeNode)))
+                                    .map(chunkNode -> getOutlineEntry(chunkNode, sourceBytes, packageName))
+                                    .collect(Collectors.joining(ENTRY_SEPARATOR))
+                                    .strip())
+                            .build();
                 })
                 .getOrElseThrow(Exceptions::propagate);
     }
@@ -104,14 +120,42 @@ public class CodeChunkingServiceImpl implements IChunkingServiceImpl {
                 .toList();
     }
 
-    private CodeChunk toCodeChunk(final TSNode chunkNode, final byte[] sourceBytes, final String packageName) {
-        final String declaration = OUTLINED_DECLARATIONS.contains(chunkNode.getType()) ?
-                getClassOutline(chunkNode, sourceBytes) : getText(chunkNode, sourceBytes);
+    private boolean isListedInClassOutline(final TSNode chunkNode) {
+        final TSNode body = chunkNode.getParent();
 
-        return CodeChunk.builder()
-                .text(getLeadingComment(chunkNode, sourceBytes) + declaration)
-                .scope(getScope(chunkNode, sourceBytes, packageName))
-                .build();
+        return (METHOD_DECLARATIONS.contains(chunkNode.getType()) || FIELD_DECLARATIONS.contains(chunkNode.getType()))
+                && isPresent(body)
+                && isPresent(body.getParent())
+                && OUTLINED_DECLARATIONS.contains(body.getParent().getType());
+    }
+
+    private String getOutlineEntry(final TSNode chunkNode, final byte[] sourceBytes, final String packageName) {
+        if (!OUTLINED_DECLARATIONS.contains(chunkNode.getType())) {
+            return getLeadingComment(chunkNode, sourceBytes) + getDeclaration(chunkNode, sourceBytes);
+        }
+
+        final String scope = getScope(chunkNode.getParent(), sourceBytes, packageName);
+
+        return (scope.isEmpty() ? "" : IN_LABEL + scope + "\n")
+                + getLeadingComment(chunkNode, sourceBytes)
+                + getClassOutline(chunkNode, sourceBytes);
+    }
+
+    private String getDeclaration(final TSNode node, final byte[] sourceBytes) {
+        final String declaration = getText(node, sourceBytes).strip();
+
+        return isKeptWhole(node) ? declaration : StringUtils.substringBefore(declaration, LINE_END).stripTrailing();
+    }
+
+    private boolean isKeptWhole(final TSNode node) {
+        return !OUTLINED_DECLARATIONS.contains(node.getType())
+                && node.getEndByte() - node.getStartByte() <= MAX_WHOLE_DECLARATION_CHARS;
+    }
+
+    private boolean isInside(final TSNode node, final TSNode container) {
+        return container.getStartByte() <= node.getStartByte()
+                && node.getEndByte() <= container.getEndByte()
+                && node.getEndByte() - node.getStartByte() < container.getEndByte() - container.getStartByte();
     }
 
     private String getPackageName(final TSNode rootNode, final byte[] sourceBytes) {
@@ -132,7 +176,7 @@ public class CodeChunkingServiceImpl implements IChunkingServiceImpl {
         }
 
         Collections.reverse(typeNames);
-        if (!packageName.isEmpty() && !typeNames.isEmpty()) {
+        if (!packageName.isEmpty()) {
             typeNames.add(0, packageName);
         }
         return String.join(".", typeNames);
@@ -216,7 +260,7 @@ public class CodeChunkingServiceImpl implements IChunkingServiceImpl {
 
     @Builder
     @Getter
-    private static class CodeChunk {
+    private static class CodeOutline {
 
         private String text;
         private String scope;

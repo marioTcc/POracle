@@ -17,6 +17,7 @@ public interface IRagServiceImpl {
     Mono<Void> createCollectionIfMissing(int vectorSize);
     Mono<List<RetrievedChunk>> searchSimilarChunks(final String query, final List<Float> queryVector, final String projectName);
     Mono<List<InformationChunk>> findChunksByType(final InformationType informationType, int limit);
+    Mono<List<InformationChunk>> findChunksByPath(final String projectName, final String filePath);
     Mono<Map<String, Long>> countChunksByProject();
     Mono<Void> disableIndexing();
     Mono<Void> enableIndexing();

@@ -9,4 +9,5 @@ public interface IGitServiceImpl {
     Mono<Path> cloneResource(final String url, final Path directory);
     Mono<Path> cloneRepository(final String projectUrl);
     Mono<Path> cloneWiki(final String projectUrl);
+    Mono<String> getRevision(final Path repository);
 }

@@ -2,10 +2,12 @@
 
 ## What is this project
 
-POracle ("Product Oracle") answers questions about software projects. It clones GitHub repositories, splits their
-source code, documentation and configuration into chunks, stores them in a vector database, and lets an agent search
-them to answer a question, citing the files it used. Everything runs locally: the language models are served by
-Ollama, the chunks are stored in Qdrant, and Langfuse records the traces and the evaluation runs.
+POracle ("Product Oracle") answers questions about software projects. It clones GitHub repositories and indexes a
+tree of summaries of each one in a vector database: an outline of every file, and an overview of every folder that
+lists what the folder contains. An agent searches that tree to find the files a question is about, then reads those
+files, from the local copy or from the online repository, and answers citing them. Everything runs locally: the
+language models are served by Ollama, the index is stored in Qdrant, and Langfuse records the traces and the
+evaluation runs.
 
 It is a proof of concept built on Java 17, Spring Boot (WebFlux) and LangChain4j. It also contains an evaluator that
 measures the quality of the answers against a dataset of questions and expected answers.
@@ -43,7 +45,7 @@ Ollama is expected at `http://localhost:11434`. Pull the models named in `applic
 
 ```bash
 ollama pull llama3.1:8b          # answers the questions, writes the project summaries
-ollama pull qwen2.5-coder:1.5b   # summarises the file tree during an ingestion
+ollama pull qwen2.5-coder:1.5b   # summarises the folders during an ingestion
 ollama pull phi4:14b             # judge, only needed for the evaluation
 ```
 
@@ -93,7 +95,7 @@ To run without it, set `RERANK.PROVIDER=none` and leave `RAG.SEARCH.WEAK.SCORE` 
 
 ### Windows on ARM: use an x64 JDK
 
-Code is chunked with tree-sitter, which loads a native library that is not published for Windows on ARM64. On an
+Code is outlined with tree-sitter, which loads a native library that is not published for Windows on ARM64. On an
 ARM64 JVM the application fails to start with `Can't open lib/aarch64-windows-tree-sitter-java.dll`. Run it on an
 x64 JDK, which Windows executes under emulation:
 
@@ -151,7 +153,35 @@ To ingest something else:
 | `POST /ingestion/ingest-from-path?path=<folder>` | A local folder as it is; the project name is the folder name. |
 
 Ingesting a project again replaces its chunks. After changing the embedding provider or model, delete the collection
-first with `DELETE /rag/delete-collection?collection=projects_collection`, then ingest again.
+first with `DELETE /rag/delete-collection?collection=projects_collection`, then ingest again. A collection ingested
+with version 1 holds the content of the files instead of the tree of summaries: delete it and ingest again too.
+
+### What an ingestion stores
+
+The index does not hold the content of the files. For each project it holds:
+
+- **One outline per file.** For code, the declarations found by tree-sitter: a class is its signature, its fields
+  and the names of its methods; a short declaration is kept whole and a long one is cut to its first line. For
+  documentation and configuration, the first lines followed by the list of headings or keys. A file shorter than
+  `FILE.OUTLINE.MAX.CHARS` is kept whole. No model is called for an outline.
+- **One overview per folder**, written by the coding model from the outlines of its files and the overviews of its
+  subfolders, from the deepest folder up to the root, followed by the list of what the folder contains. Every folder
+  is covered, whatever its depth, except the folders that only contain one other folder (`src/main/java/com`): those
+  are skipped and their content is listed under their parent. When the model fails, the folder keeps its list.
+- **The project and module summaries** written from the README files.
+
+Each entry records where its file can be read again: the local path it was ingested from, and for a cloned
+repository its URL and the commit that was ingested.
+
+### How the agent reads a file
+
+`readFile(project, path)` only accepts a path that is in the index of that project. It reads the local file when it
+is still on disk (always the case for a project ingested from a path; a clone lives in `PROJECTS.DOWNLOAD.FOLDER`
+until it is cloned again or the folder is cleaned), otherwise it asks GitHub for the file at the ingested commit,
+with the token of `secrets.properties`. Wiki pages are only read locally. Secrets are redacted from what is
+returned, like at ingestion. A long file comes back in parts of `FILE.READ.MAX.CHARS`, with a note telling the agent
+how to ask for the next part. With the path of a folder the tool returns the overview and the content list of the
+folder.
 
 ## How to run the evaluator
 
@@ -213,7 +243,8 @@ about 0.1.
 
 ## How the search works
 
-The agent is not given the documents. It has a search tool, and it decides what to search for and how many times.
+The agent is not given the documents. It has a search tool, which returns outlines of files and overviews of
+folders, and a tool to read the files it found; it decides what to search for, how many times, and what to read.
 Every search goes through the same three stages: two independent rankings, their fusion, and a reranking.
 
 ### Two representations of every chunk
@@ -370,7 +401,7 @@ All settings are in `src/main/resources/application.properties`. The "Value" col
 |---|---|---|
 | `OLLAMA.BASE.URL` | `http://localhost:11434` | Address of the Ollama server. |
 | `OLLAMA.GENERAL.PURPOSE.MODEL.NAME` | `llama3.1:8b` | Model that answers the questions and writes the project and module summaries. It must support tool calling. |
-| `OLLAMA.CODING.MODEL.NAME` | `qwen2.5-coder:1.5b` | Model that summarises the file tree of a project during an ingestion. |
+| `OLLAMA.CODING.MODEL.NAME` | `qwen2.5-coder:1.5b` | Model that writes the overview of each folder of a project during an ingestion, one call per folder. |
 | `OLLAMA.JUDGE.MODEL.NAME` | `phi4:14b` | Model that grades the answers in an evaluation. Choose one larger than the answering model and from another family: a model grading itself is lenient. |
 | `OLLAMA.EMBEDDING.MODEL.NAME` | `qwen3-embedding:0.6b` | Embedding model, used only when `EMBEDDING.PROVIDER=ollama`. |
 | `OLLAMA.EMBEDDING.QUERY.PREFIX` | an instruction | Text put in front of a question before it is embedded with the Ollama model. Change it together with the model. |
@@ -392,6 +423,7 @@ All settings are in `src/main/resources/application.properties`. The "Value" col
 | `RERANK.MODEL.PATH` | `../onnx/model.onnx` | Path of the ONNX reranking model. |
 | `RERANK.TOKENIZER.PATH` | `../onnx/tokenizer.json` | Path of its tokenizer. |
 | `RAG.SEARCH.MAX.CHUNK.CHARS` | `1500` | Longest excerpt of a chunk given to the agent; longer chunks are cut. |
+| `FILE.READ.MAX.CHARS` | `6000` | Longest part of a file that `readFile` returns in one call. |
 | `RAG.SEARCH.WEAK.SCORE` | `3` | When the best result of a search scores below this, the agent is told to search again with other words. The value fits the scores of the `in-process` reranker; leave it empty to switch this off, and always with `RERANK.PROVIDER=none`. |
 
 ### Agents and guardrails
@@ -433,13 +465,13 @@ All settings are in `src/main/resources/application.properties`. The "Value" col
 
 | Key | Value | Meaning |
 |---|---|---|
-| `CODE.FILE.EXTENSIONS` | a list | Extensions ingested as source code. Java, Kotlin, Python, JavaScript, TypeScript, SQL and HTML are split by declaration; the others are stored as whole files. |
-| `DOCS.FILE.EXTENSIONS` | a list | Extensions ingested as documentation, split by headings (plain text by paragraphs). |
-| `CONFIG.FILE.EXTENSIONS` | a list | Extensions ingested as configuration, split by keys or elements. |
-| `TEXT.CHUNK.MAX.CHARS` | `1500` | Longest chunk of documentation or configuration. |
-| `PROJECT.TREE.MAX.DEPTH` | `3` | Depth of the file tree that is summarised for each project. |
+| `CODE.FILE.EXTENSIONS` | a list | Extensions ingested as source code. Java, Kotlin, Python, JavaScript, TypeScript, SQL and HTML are outlined by declaration; the others by their first lines. |
+| `DOCS.FILE.EXTENSIONS` | a list | Extensions ingested as documentation, outlined by their first lines and their headings. |
+| `CONFIG.FILE.EXTENSIONS` | a list | Extensions ingested as configuration, outlined by their first lines and their keys or elements. |
+| `FILE.OUTLINE.MAX.CHARS` | `1500` | Longest outline of a file. A shorter documentation or configuration file is stored whole. |
+| `GITHUB.API.URL` | `https://api.github.com` | API the agent reads a file from when its local copy is gone. |
 | `SUMMARY.MAX.MODULES` | `40` | Most module summaries written per project, one per nested README. |
 | `SUMMARY.MODULE.MAX.DEPTH` | `3` | Deepest folder level whose README gets a module summary. |
-| `SUMMARY.MAX.INPUT.CHARS` | `12000` | Longest README text given to the model for a summary. |
+| `SUMMARY.MAX.INPUT.CHARS` | `12000` | Longest text given to the model for a summary: a README, or the outlines and overviews of what a folder contains. |
 
 A file whose extension is in none of the three lists is not ingested.

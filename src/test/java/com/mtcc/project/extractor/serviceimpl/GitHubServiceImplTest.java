@@ -118,6 +118,21 @@ class GitHubServiceImplTest {
     }
 
     @Test
+    void getRevision_ShouldReturnTheCommitTheCloneIsAt() throws Exception {
+        final Path target = tempDir.resolve("clone");
+        gitService.cloneResource(remoteUrl(), target).block();
+
+        try (Git git = Git.open(remoteRepository.toFile())) {
+            assertEquals(git.getRepository().resolve("HEAD").getName(), gitService.getRevision(target).block());
+        }
+    }
+
+    @Test
+    void getRevision_ShouldFail_WhenTheFolderIsNotARepository() {
+        assertThrows(RuntimeException.class, () -> gitService.getRevision(tempDir.resolve("missing")).block());
+    }
+
+    @Test
     void cloneResource_ShouldNotRunTheContentFiltersOfTheRepository() throws Exception {
         final AtomicInteger filterRuns = new AtomicInteger();
         final StoredConfig userConfig = SystemReader.getInstance().getUserConfig();

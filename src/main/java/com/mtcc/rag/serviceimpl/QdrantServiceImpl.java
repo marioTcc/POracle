@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import static com.mtcc.rag.serviceimpl.converter.QdrantConverter.DENSE_VECTOR;
+import static com.mtcc.rag.serviceimpl.converter.QdrantConverter.FILE_PATH_FIELD;
 import static com.mtcc.rag.serviceimpl.converter.QdrantConverter.INFORMATION_TYPE_FIELD;
 import static com.mtcc.rag.serviceimpl.converter.QdrantConverter.INGESTION_ID_FIELD;
 import static com.mtcc.rag.serviceimpl.converter.QdrantConverter.KEYWORD_VECTOR;
@@ -46,6 +47,7 @@ public class QdrantServiceImpl implements IRagServiceImpl {
     private static final String COLLECTION_NAME = "projects_collection";
     private static final int INDEXING_DISABLED = 0;
     private static final int MAX_PROJECTS = 1000;
+    private static final int MAX_CHUNKS_BY_PATH = 20;
 
     private final QdrantClient qdrantClient;
     private final QdrantClientProperties qdrantClientProperties;
@@ -206,9 +208,23 @@ public class QdrantServiceImpl implements IRagServiceImpl {
 
     @Override
     public Mono<List<InformationChunk>> findChunksByType(final InformationType informationType, final int limit) {
+        return scroll(matchFilter(INFORMATION_TYPE_FIELD, informationType.toString()), limit);
+    }
+
+    @Override
+    public Mono<List<InformationChunk>> findChunksByPath(final String projectName, final String filePath) {
+        final Points.Filter projectPath = Points.Filter.newBuilder()
+                .addMust(matchKeyword(PROJECT_NAME_FIELD, projectName))
+                .addMust(matchKeyword(FILE_PATH_FIELD, filePath))
+                .build();
+
+        return scroll(projectPath, MAX_CHUNKS_BY_PATH);
+    }
+
+    private Mono<List<InformationChunk>> scroll(final Points.Filter filter, final int limit) {
         final Points.ScrollPoints scroll = Points.ScrollPoints.newBuilder()
                 .setCollectionName(COLLECTION_NAME)
-                .setFilter(matchFilter(INFORMATION_TYPE_FIELD, informationType.toString()))
+                .setFilter(filter)
                 .setLimit(limit)
                 .setWithPayload(WithPayloadSelectorFactory.enable(true))
                 .build();
@@ -263,7 +279,7 @@ public class QdrantServiceImpl implements IRagServiceImpl {
     }
 
     private Mono<Void> createPayloadIndexes() {
-        return Flux.just(PROJECT_NAME_FIELD, INFORMATION_TYPE_FIELD)
+        return Flux.just(PROJECT_NAME_FIELD, INFORMATION_TYPE_FIELD, FILE_PATH_FIELD)
                 .concatMap(field -> toMono(() -> qdrantClient.createPayloadIndexAsync(
                         COLLECTION_NAME, field, Collections.PayloadSchemaType.Keyword, null, true, null, null))
                         .doOnSuccess(ok -> log.info("Qdrant payload index ready for field: {}", field)))

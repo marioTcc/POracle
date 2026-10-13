@@ -41,8 +41,8 @@ public class AgentService {
         return agentServiceImpl.summarizeModule(projectName, modulePath, documentation);
     }
 
-    public Mono<String> analyzeProjectStructure(final String projectStructure) {
-        return agentServiceImpl.analyzeProjectStructure(projectStructure);
+    public Mono<String> summarizeFolder(final String projectName, final String folderPath, final String contents) {
+        return agentServiceImpl.summarizeFolder(projectName, folderPath, contents);
     }
 
     public Mono<Double> judgeAnswerRecall(final String question, final String expectedAnswer, final String answer) {

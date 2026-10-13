@@ -29,7 +29,7 @@ class InformationChunkTest {
     @Test
     void buildChunk_ShouldReplaceAMissingContextWithAnEmptyOne() {
         final InformationChunk chunk = InformationChunk.buildChunk("spring-ai", "", "TEXT",
-                InformationType.PROJECT_STRUCTURE, "A file tree.", null, "llm-summary");
+                InformationType.FOLDER_SUMMARY, "A folder overview.", null, "llm-summary");
 
         assertEquals("", chunk.getContext());
         assertEquals("", chunk.getFilename());

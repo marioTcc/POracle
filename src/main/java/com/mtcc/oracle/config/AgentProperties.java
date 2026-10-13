@@ -31,4 +31,10 @@ public class AgentProperties {
 
     @Value("${RAG.SEARCH.WEAK.SCORE:#{null}}")
     private Double searchWeakScore;
+
+    @Value("${FILE.READ.MAX.CHARS:6000}")
+    private Integer fileReadMaxChars;
+
+    @Value("${SECRETS.REDACTION.ENABLED:true}")
+    private Boolean secretsRedactionEnabled;
 }

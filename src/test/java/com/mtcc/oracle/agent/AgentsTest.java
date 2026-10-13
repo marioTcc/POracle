@@ -27,7 +27,7 @@ class AgentsTest {
     void codingAgent_ShouldReturnTheModelAnswerReactively() {
         final CodingAgent codingAgent = AiServices.builder(CodingAgent.class).chatModel(chatModel).build();
 
-        assertEquals(MODEL_ANSWER, codingAgent.analyzeProjectStructure("src/\n main/").block());
+        assertEquals(MODEL_ANSWER, codingAgent.summarizeFolder("spring-ai", "models/openai", "File OpenAiApi.java").block());
     }
 
     @Test

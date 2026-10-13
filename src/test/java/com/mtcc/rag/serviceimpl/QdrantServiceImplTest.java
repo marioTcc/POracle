@@ -228,6 +228,24 @@ class QdrantServiceImplTest {
     }
 
     @Test
+    void findChunksByPath_ShouldFilterOnTheProjectAndThePath() {
+        when(qdrantClient.scrollAsync(any(Points.ScrollPoints.class))).thenReturn(Futures.immediateFuture(
+                Points.ScrollResponse.newBuilder()
+                        .addResult(Points.RetrievedPoint.newBuilder().putAllPayload(PAYLOAD))
+                        .build()));
+
+        final List<InformationChunk> chunks = qdrantService.findChunksByPath("spring-ai", "models/openai/OpenAiApi.java").block();
+
+        assertEquals(List.of("models/openai/OpenAiApi.java"), chunks.stream().map(InformationChunk::getFilePath).toList());
+
+        final ArgumentCaptor<Points.ScrollPoints> scroll = ArgumentCaptor.forClass(Points.ScrollPoints.class);
+        verify(qdrantClient).scrollAsync(scroll.capture());
+        assertEquals("spring-ai", scroll.getValue().getFilter().getMust(0).getField().getMatch().getKeyword());
+        assertEquals("filePath", scroll.getValue().getFilter().getMust(1).getField().getKey());
+        assertEquals("models/openai/OpenAiApi.java", scroll.getValue().getFilter().getMust(1).getField().getMatch().getKeyword());
+    }
+
+    @Test
     void getChunk_ShouldReturnTheStoredChunk_OrNothingWhenItDoesNotExist() {
         when(qdrantClient.retrieveAsync(eq(COLLECTION), any(Points.PointId.class), eq(true), eq(false), isNull()))
                 .thenReturn(Futures.immediateFuture(List.of(Points.RetrievedPoint.newBuilder().putAllPayload(PAYLOAD).build())))
@@ -255,7 +273,7 @@ class QdrantServiceImplTest {
         final ArgumentCaptor<Collections.UpdateCollection> update = ArgumentCaptor.forClass(Collections.UpdateCollection.class);
         verify(qdrantClient).updateCollectionAsync(update.capture());
         assertEquals(20000, update.getValue().getOptimizersConfig().getIndexingThreshold());
-        for (final String field : List.of("projectName", "informationType")) {
+        for (final String field : List.of("projectName", "informationType", "filePath")) {
             verify(qdrantClient).createPayloadIndexAsync(eq(COLLECTION), eq(field), eq(Collections.PayloadSchemaType.Keyword),
                     isNull(), eq(true), isNull(), isNull());
         }

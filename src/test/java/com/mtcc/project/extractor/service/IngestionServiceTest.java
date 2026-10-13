@@ -51,6 +51,7 @@ class IngestionServiceTest {
     private static final int TIMEOUT_MILLIS = 5000;
     private static final String SPRING_AI_URL = "https://github.com/spring-projects/spring-ai.git";
     private static final String SPRING_SECURITY_URL = "https://github.com/spring-projects/spring-security.git";
+    private static final String REVISION = "4f2c9d1";
     private static final String INDEXING_DISABLED = "indexing disabled";
     private static final String INDEXING_ENABLED = "indexing enabled";
     private static final String CHUNKS_INGESTED = "chunks ingested";
@@ -97,6 +98,7 @@ class IngestionServiceTest {
                 Flux.just(Path.of(call.<String>getArgument(0)).resolve("README.md")));
         when(chunkingService.chunkProject(any(), any())).thenReturn(Flux.just(chunk));
         when(gitService.cloneRepository(anyString())).thenAnswer(call -> Mono.just(repositoryPath(call.getArgument(0))));
+        when(gitService.getRevision(any())).thenReturn(Mono.just(REVISION));
         when(gitService.cloneWiki(anyString())).thenAnswer(call -> Mono.just(wikiPath(call.getArgument(0))));
     }
 

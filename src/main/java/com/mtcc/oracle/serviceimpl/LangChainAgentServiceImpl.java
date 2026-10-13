@@ -89,8 +89,11 @@ public class LangChainAgentServiceImpl implements IAgentServiceImpl {
     }
 
     @Override
-    public Mono<String> analyzeProjectStructure(final String projectStructure) {
-        return codingAgent.analyzeProjectStructure(projectStructure);
+    public Mono<String> summarizeFolder(final String projectName, final String folderPath, final String contents) {
+        return codingAgent.summarizeFolder(projectName, folderPath, contents)
+                .doOnSubscribe(subscription -> log.debug("Summarizing folder {} of project {}", folderPath, projectName))
+                .doOnError(error -> log.warn("Cannot summarize folder {} of project {}: {}",
+                        folderPath, projectName, error.toString()));
     }
 
     @Override

@@ -13,8 +13,8 @@ import java.util.stream.Stream;
 @Component
 public class ChunkingProperties {
 
-    @Value("${TEXT.CHUNK.MAX.CHARS:1500}")
-    private Integer textChunkMaxChars;
+    @Value("${FILE.OUTLINE.MAX.CHARS:1500}")
+    private Integer fileOutlineMaxChars;
 
     @Value("${CODE.FILE.EXTENSIONS}")
     private List<String> codeFileExtensions;
@@ -24,9 +24,6 @@ public class ChunkingProperties {
 
     @Value("${CONFIG.FILE.EXTENSIONS}")
     private List<String> configFileExtensions;
-
-    @Value("${PROJECT.TREE.MAX.DEPTH:3}")
-    private Integer projectTreeMaxDepth;
 
     @Value("${SUMMARY.MAX.MODULES:40}")
     private Integer summaryMaxModules;

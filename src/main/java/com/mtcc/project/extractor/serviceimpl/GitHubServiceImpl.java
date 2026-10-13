@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.api.ResetCommand;
 import org.eclipse.jgit.api.errors.GitAPIException;
+import org.eclipse.jgit.lib.Constants;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.springframework.stereotype.Service;
 import reactor.core.Exceptions;
@@ -72,6 +73,15 @@ public class GitHubServiceImpl implements IGitServiceImpl {
         return ioService.createFolder(urltoProjectName.apply(projectUrl))
                 .flatMap(newDir -> this.cloneResource(projectUrl, newDir))
                 .doOnError(error -> log.error("Cannot clone the project {}", projectUrl, error));
+    }
+
+    @Override
+    public Mono<String> getRevision(final Path repository) {
+        return Mono.fromCallable(() -> Try.withResources(() -> Git.open(repository.toFile()))
+                        .of(git -> git.getRepository().resolve(Constants.HEAD).getName())
+                        .getOrElseThrow(Exceptions::propagate))
+                .doOnError(error -> log.warn("Cannot read the revision of {}: {}", repository, error.toString()))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     @Override

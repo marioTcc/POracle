@@ -11,6 +11,7 @@ public class Project {
 
     private String projectName;
     private String projectUrl;
+    private String revision;
     private Path projectPath;
     private Path projectRepoWikiPath;
 }

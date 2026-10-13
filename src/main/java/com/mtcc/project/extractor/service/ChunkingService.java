@@ -8,7 +8,9 @@ import com.mtcc.common.security.SecretRedactor;
 import com.mtcc.oracle.service.AgentService;
 import com.mtcc.project.extractor.config.ChunkingProperties;
 import com.mtcc.project.extractor.entity.Project;
+import com.mtcc.project.extractor.entity.ProjectFolder;
 import com.mtcc.project.extractor.serviceimpl.interfaces.IChunkingServiceImpl;
+import com.mtcc.project.extractor.util.ProjectTreeUtils;
 import com.mtcc.project.extractor.util.SummaryTexts;
 import com.mtcc.common.serviceimpl.interfaces.IIOServiceImpl;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +23,12 @@ import reactor.core.scheduler.Schedulers;
 
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.mtcc.common.entity.InformationChunk.buildChunk;
 import static com.mtcc.project.extractor.util.FileUtils.*;
@@ -30,6 +37,10 @@ import static com.mtcc.project.extractor.util.FileUtils.*;
 @Service
 @RequiredArgsConstructor
 public class ChunkingService {
+
+    private static final int MIN_FOLDER_ENTRY_CHARS = 200;
+    private static final String FOLDER_ENTRY_SEPARATOR = "\n\n";
+    private static final String FOLDER_MARK = "/";
 
     private final ChunkingProperties chunkingProperties;
     private final IngestionProgress ingestionProgress;
@@ -42,11 +53,16 @@ public class ChunkingService {
     private final IChunkingServiceImpl wholeFileChunkingServiceImpl;
 
     public Flux<InformationChunk> chunkProject(final Project project, final Flux<Path> projectFiles) {
+        final Flux<InformationChunk> fileOutlines = projectFiles
+                .flatMap(file -> this.analyzeFile(project, file), 1)
+                .map(this::redactSecrets)
+                .cache();
+
         return Flux.merge(
-                        getProjectStructure(project, projectFiles),
-                        getProjectSummaries(project, projectFiles),
-                        projectFiles.flatMap(file -> this.analyzeFile(project, file), 1))
-                .map(this::redactSecrets);
+                        getProjectSummaries(project, projectFiles).map(this::redactSecrets),
+                        fileOutlines,
+                        getFolderSummaries(project, fileOutlines).map(this::redactSecrets))
+                .map(chunk -> withRepository(project, chunk));
     }
 
     private InformationChunk redactSecrets(final InformationChunk chunk) {
@@ -66,15 +82,58 @@ public class ChunkingService {
         return chunk.toBuilder().text(redaction.getText()).build();
     }
 
-    public Mono<InformationChunk> getProjectStructure(final Project project, final Flux<Path> projectFiles) {
-        return projectFiles
-                .map(file -> getRelativePath(project, file))
-                .collectList()
-                .map(filePaths -> getProjectFilesTree(filePaths, chunkingProperties.getProjectTreeMaxDepth()))
-                .doOnNext(tree -> log.info("Analyzing the file tree of project {}", project.getProjectName()))
-                .flatMap(agentService::analyzeProjectStructure)
-                .map(tree -> buildChunk(project.getProjectName(), "", SummaryTexts.LANGUAGE,
-                        InformationType.PROJECT_STRUCTURE, tree, SummaryTexts.PROJECT_STRUCTURE_CONTEXT, SummaryTexts.STRATEGY));
+    private InformationChunk withRepository(final Project project, final InformationChunk chunk) {
+        return chunk.toBuilder()
+                .repositoryUrl(StringUtils.startsWith(chunk.getFilePath(), WIKI_PREFIX) ? null : project.getProjectUrl())
+                .revision(project.getRevision())
+                .build();
+    }
+
+    public Flux<InformationChunk> getFolderSummaries(final Project project, final Flux<InformationChunk> fileOutlines) {
+        return Flux.defer(() -> {
+            final Map<String, String> summaryByFolder = new ConcurrentHashMap<>();
+
+            return fileOutlines.collectList()
+                    .map(ProjectTreeUtils::getFoldersDeepestFirst)
+                    .doOnNext(folders -> log.info("Summarizing the {} folders of project {}", folders.size(), project.getProjectName()))
+                    .flatMapIterable(folders -> folders)
+                    .concatMap(folder -> summarizeFolder(project, folder, summaryByFolder));
+        });
+    }
+
+    private Mono<InformationChunk> summarizeFolder(final Project project, final ProjectFolder folder,
+                                                   final Map<String, String> summaryByFolder) {
+        final String projectName = project.getProjectName();
+        final String folderPath = folder.getPath();
+
+        return agentService.summarizeFolder(projectName, SummaryTexts.getFolderName(folderPath), getFolderContents(folder, summaryByFolder))
+                .onErrorResume(error -> Mono.empty())
+                .defaultIfEmpty("")
+                .doOnNext(summary -> summaryByFolder.put(folderPath, summary))
+                .map(summary -> buildChunk(projectName, folderPath, SummaryTexts.LANGUAGE, InformationType.FOLDER_SUMMARY,
+                        SummaryTexts.getFolderOverview(projectName, folderPath, summary, getContentPaths(folder)),
+                        SummaryTexts.getFolderOverviewContext(folderPath), SummaryTexts.STRATEGY));
+    }
+
+    private String getFolderContents(final ProjectFolder folder, final Map<String, String> summaryByFolder) {
+        final int maxChars = chunkingProperties.getSummaryMaxInputChars();
+        final int entries = folder.getSubfolders().size() + folder.getFiles().size();
+        final int entryChars = Math.max(MIN_FOLDER_ENTRY_CHARS, maxChars / Math.max(entries, 1));
+
+        final Stream<String> subfolders = folder.getSubfolders().stream()
+                .map(subfolder -> "Folder " + subfolder + FOLDER_MARK + "\n"
+                        + StringUtils.abbreviate(summaryByFolder.getOrDefault(subfolder, ""), entryChars));
+        final Stream<String> files = folder.getFiles().stream()
+                .map(file -> "File " + file.getFilename() + "\n" + StringUtils.abbreviate(file.getText(), entryChars));
+
+        return StringUtils.left(Stream.concat(subfolders, files).collect(Collectors.joining(FOLDER_ENTRY_SEPARATOR)), maxChars);
+    }
+
+    private List<String> getContentPaths(final ProjectFolder folder) {
+        return Stream.concat(
+                        folder.getSubfolders().stream().map(subfolder -> subfolder + FOLDER_MARK),
+                        folder.getFiles().stream().map(InformationChunk::getFilePath))
+                .toList();
     }
 
     public Flux<InformationChunk> getProjectSummaries(final Project project, final Flux<Path> projectFiles) {
@@ -142,6 +201,7 @@ public class ChunkingService {
                         textChunkingServiceImpl.chunkFile(project, filePath, infoType))
                 .switchIfEmpty(wholeFileChunkingServiceImpl.chunkFile(project, filePath, informationType))
                 .onErrorResume(error -> wholeFileChunkingServiceImpl.chunkFile(project, filePath, informationType))
+                .map(outline -> outline.toBuilder().localPath(filePath.toAbsolutePath().normalize().toString()).build())
                 .doOnComplete(() -> ingestionProgress.fileProcessed(project.getProjectName()))
                 .onErrorResume(error -> {
                     ingestionProgress.fileSkipped(project.getProjectName());

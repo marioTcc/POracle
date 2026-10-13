@@ -32,6 +32,7 @@ public class QdrantConverter {
     public static final String PROJECT_NAME_FIELD = "projectName";
     public static final String INFORMATION_TYPE_FIELD = "informationType";
     public static final String INGESTION_ID_FIELD = "ingestionId";
+    public static final String FILE_PATH_FIELD = "filePath";
     public static final String DENSE_VECTOR = "dense";
     public static final String KEYWORD_VECTOR = "keywords";
 
@@ -70,13 +71,16 @@ public class QdrantConverter {
             fields.put(PROJECT_NAME_FIELD, chunk.getProjectName());
             fields.put("chunkId", chunk.getChunkId());
             fields.put("filename", chunk.getFilename());
-            fields.put("filePath", chunk.getFilePath());
+            fields.put(FILE_PATH_FIELD, chunk.getFilePath());
             fields.put("language", chunk.getLanguage());
             fields.put(INFORMATION_TYPE_FIELD, chunk.getInformationType().toString());
             fields.put("text", chunk.getText());
             fields.put("chunkingStrategy", chunk.getChunkingStrategy());
             fields.put("context", chunk.getContext());
             fields.put(INGESTION_ID_FIELD, Objects.toString(chunk.getIngestionId(), ""));
+            fields.put("localPath", Objects.toString(chunk.getLocalPath(), ""));
+            fields.put("repositoryUrl", Objects.toString(chunk.getRepositoryUrl(), ""));
+            fields.put("revision", Objects.toString(chunk.getRevision(), ""));
 
             return fields.entrySet().stream()
                     .collect(Collectors.toMap(Map.Entry::getKey, field -> ValueFactory.value(String.valueOf(field.getValue()))));
@@ -95,7 +99,7 @@ public class QdrantConverter {
                     .projectName(getText(payload, PROJECT_NAME_FIELD))
                     .chunkId(getText(payload, "chunkId"))
                     .filename(getText(payload, "filename"))
-                    .filePath(getText(payload, "filePath"))
+                    .filePath(getText(payload, FILE_PATH_FIELD))
                     .language(getText(payload, "language"))
                     .informationType(Try.of(() -> InformationType.valueOf(getText(payload, INFORMATION_TYPE_FIELD)))
                             .getOrNull())
@@ -103,6 +107,9 @@ public class QdrantConverter {
                     .chunkingStrategy(getText(payload, "chunkingStrategy"))
                     .context(getText(payload, "context"))
                     .ingestionId(getText(payload, INGESTION_ID_FIELD))
+                    .localPath(getText(payload, "localPath"))
+                    .repositoryUrl(getText(payload, "repositoryUrl"))
+                    .revision(getText(payload, "revision"))
                     .build();
         }
 

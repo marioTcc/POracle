@@ -96,7 +96,7 @@ class LangChainAgentServiceImplTest {
 
         agentServiceImpl = new LangChainAgentServiceImpl(
                 new AgentFactory(guardrailProperties, new SecretRedactor(), chatModel),
-                new AgentRagTools(ragService, agentProperties), chatModel, chatModel, judgeModel);
+                new AgentRagTools(ragService, null, agentProperties), chatModel, chatModel, judgeModel);
         ReflectionTestUtils.invokeMethod(agentServiceImpl, "initAgents");
     }
 
@@ -182,6 +182,6 @@ class LangChainAgentServiceImplTest {
     void summariesAndStructureAnalysis_ShouldReturnTheModelAnswer() {
         assertEquals(MODEL_ANSWER, agentServiceImpl.summarizeProject("spring-ai", "An AI framework.").block());
         assertEquals(MODEL_ANSWER, agentServiceImpl.summarizeModule("spring-ai", "models/openai", "OpenAI module.").block());
-        assertEquals(MODEL_ANSWER, agentServiceImpl.analyzeProjectStructure("src/\n main/").block());
+        assertEquals(MODEL_ANSWER, agentServiceImpl.summarizeFolder("spring-ai", "models/openai", "File OpenAiApi.java").block());
     }
 }

@@ -4,6 +4,9 @@ import com.mtcc.common.entity.InformationChunk;
 import com.mtcc.common.entity.InformationType;
 import com.mtcc.common.entity.RetrievedChunk;
 import com.mtcc.oracle.config.AgentProperties;
+import com.mtcc.oracle.entity.ProjectFile;
+import com.mtcc.oracle.exception.ProjectFileNotFoundException;
+import com.mtcc.oracle.service.ProjectFileService;
 import com.mtcc.rag.service.RagService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +38,8 @@ class AgentRagToolsTest {
     @Mock
     private RagService ragService;
     @Mock
+    private ProjectFileService projectFileService;
+    @Mock
     private AgentProperties agentProperties;
     private AgentRagTools agentRagTools;
 
@@ -42,8 +47,9 @@ class AgentRagToolsTest {
 
     @BeforeEach
     void setUp() {
-        agentRagTools = new AgentRagTools(ragService, agentProperties);
+        agentRagTools = new AgentRagTools(ragService, projectFileService, agentProperties);
         when(agentProperties.getSearchMaxChunkChars()).thenReturn(1500);
+        when(agentProperties.getFileReadMaxChars()).thenReturn(40);
         when(ragService.countChunksByProject())
                 .thenReturn(Mono.just(new TreeMap<>(Map.of("spring-ai", 120L, "spring-security", 300L))));
         when(ragService.searchChunks(anyString(), any(), any())).thenReturn(Mono.just(List.of()));
@@ -155,6 +161,69 @@ class AgentRagToolsTest {
 
         final String result = agentRagTools.ragSearch("authentication", null).block();
         assertEquals("The search failed: store not reachable", result);
+    }
+
+    private ProjectFile fileOf(final String content) {
+        return ProjectFile.builder().node(getSampleChunk("class OpenAiApi\nMethods: call").getChunk()).content(content).build();
+    }
+
+    @Test
+    void readFile_ShouldReturnAShortFileWhole() {
+        when(projectFileService.readFile("spring-ai", "models/openai/OpenAiApi.java"))
+                .thenReturn(Mono.just(fileOf("class OpenAiApi {\n    void call() {}\n}\n")));
+
+        final String result = agentRagTools.readFile(" spring-ai ", "models/openai/OpenAiApi.java", null).block();
+
+        assertEquals("project: spring-ai | file: models/openai/OpenAiApi.java\nlines 1-3 of 3\n"
+                + "class OpenAiApi {\n    void call() {}\n}", result);
+    }
+
+    @Test
+    void readFile_ShouldReturnALongFileInParts_AndTellHowToReadOn() {
+        when(projectFileService.readFile(anyString(), anyString()))
+                .thenReturn(Mono.just(fileOf("first line of the file\nsecond line of the file\nthird line of the file\n")));
+
+        final String firstPart = agentRagTools.readFile("spring-ai", "models/openai/OpenAiApi.java", null).block();
+        final String lastPart = agentRagTools.readFile("spring-ai", "models/openai/OpenAiApi.java", 2).block();
+
+        assertEquals("project: spring-ai | file: models/openai/OpenAiApi.java\nlines 1-1 of 3\nfirst line of the file\n\n---\n\n"
+                + "NOTE: the file goes on. Call 'readFile' again with fromLine=2 only if the answer needs the rest of it.", firstPart);
+        assertTrue(lastPart.startsWith("project: spring-ai | file: models/openai/OpenAiApi.java\nlines 2-2 of 3\nsecond line"), lastPart);
+        assertTrue(lastPart.contains("fromLine=3"), lastPart);
+    }
+
+    @Test
+    void readFile_ShouldReturnTheOverviewOfAFolder() {
+        final InformationChunk folder = InformationChunk.buildChunk("spring-ai", "models/openai", "TEXT",
+                InformationType.FOLDER_SUMMARY, "Contents of folder models/openai of project spring-ai:\n- models/openai/OpenAiApi.java",
+                "folder models/openai", "llm-summary");
+        when(projectFileService.readFile("spring-ai", "models/openai"))
+                .thenReturn(Mono.just(ProjectFile.builder().node(folder).content(folder.getText()).folder(true).build()));
+
+        final String result = agentRagTools.readFile("spring-ai", "models/openai", null).block();
+
+        assertEquals("project: spring-ai | folder: models/openai\n" + folder.getText(), result);
+    }
+
+    @Test
+    void readFile_ShouldReportTheFileItReturnedAsASource() {
+        when(projectFileService.readFile(anyString(), anyString())).thenReturn(Mono.just(fileOf("void call() {}")));
+        final List<InformationChunk> sources = new ArrayList<>();
+
+        agentRagTools.withSourcesListener(sources::addAll).readFile("spring-ai", "models/openai/OpenAiApi.java", null).block();
+
+        assertEquals(1, sources.size());
+        assertEquals("models/openai/OpenAiApi.java", sources.get(0).getFilePath());
+        assertEquals("lines 1-1 of 1\nvoid call() {}", sources.get(0).getText());
+    }
+
+    @Test
+    void readFile_ShouldExplainTheFailureInsteadOfFailing() {
+        when(projectFileService.readFile(anyString(), anyString())).thenReturn(Mono.error(
+                new ProjectFileNotFoundException("'missing.java' is not a file or folder of project 'spring-ai'")));
+
+        assertEquals("The file cannot be read: 'missing.java' is not a file or folder of project 'spring-ai'. "
+                + "Use a project and a path given by 'ragSearch'.", agentRagTools.readFile("spring-ai", "missing.java", null).block());
     }
 
     @Test

@@ -8,11 +8,13 @@ import reactor.core.publisher.Mono;
 public interface CodingAgent {
 
     @SystemMessage("""
-            You are an expert senior developer. Your task is to analyze the general details of a project
-            by the structure of its content.
-            
-            Get the project's files tree, and add your considerations at the end, three phrases at most.
+            You write factual overviews of one folder of a software project for a search index.
+            Use only the outlines of its files and the overviews of its subfolders that you are given. Do not invent features.
+
+            Cover: what the folder contains and what it is responsible for. Name its main classes, files or subfolders.
+            Write plain prose in English, 40 to 100 words, no headings, no preamble.
             """)
-    @UserMessage("Analyze this project: {{projectStructure}}")
-    Mono<String> analyzeProjectStructure(@V("projectStructure") String projectStructure);
+    @UserMessage("Project: {{projectName}}\nFolder: {{folderPath}}\n\nContents:\n{{contents}}")
+    Mono<String> summarizeFolder(@V("projectName") String projectName, @V("folderPath") String folderPath,
+                                 @V("contents") String contents);
 }

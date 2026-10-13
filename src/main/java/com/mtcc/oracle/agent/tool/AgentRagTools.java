@@ -4,6 +4,8 @@ import com.mtcc.common.entity.InformationChunk;
 import com.mtcc.common.entity.InformationType;
 import com.mtcc.common.entity.RetrievedChunk;
 import com.mtcc.oracle.config.AgentProperties;
+import com.mtcc.oracle.entity.ProjectFile;
+import com.mtcc.oracle.service.ProjectFileService;
 import com.mtcc.rag.service.RagService;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -36,31 +38,38 @@ public class AgentRagTools {
             NOTE: these excerpts match the search poorly, like the earlier ones. Do not search again. Unless an \
             excerpt clearly answers the question, say that the knowledge base does not contain the answer.""";
 
+    private static final String READ_ON_ADVICE = """
+            NOTE: the file goes on. Call 'readFile' again with fromLine=%d only if the answer needs the rest of it.""";
+
     private final RagService ragService;
+    private final ProjectFileService projectFileService;
     private final AgentProperties agentProperties;
     private final String question;
     private final Consumer<List<InformationChunk>> sourcesListener;
     private final AtomicInteger weakSearches = new AtomicInteger();
 
     @Autowired
-    public AgentRagTools(final RagService ragService, final AgentProperties agentProperties) {
-        this(ragService, agentProperties, null, sources -> { });
+    public AgentRagTools(final RagService ragService, final ProjectFileService projectFileService,
+                         final AgentProperties agentProperties) {
+        this(ragService, projectFileService, agentProperties, null, sources -> { });
     }
 
-    private AgentRagTools(final RagService ragService, final AgentProperties agentProperties, final String question,
+    private AgentRagTools(final RagService ragService, final ProjectFileService projectFileService,
+                          final AgentProperties agentProperties, final String question,
                           final Consumer<List<InformationChunk>> sourcesListener) {
         this.ragService = ragService;
+        this.projectFileService = projectFileService;
         this.agentProperties = agentProperties;
         this.question = question;
         this.sourcesListener = sourcesListener;
     }
 
     public AgentRagTools withQuestion(final String question) {
-        return new AgentRagTools(ragService, agentProperties, question, sourcesListener);
+        return new AgentRagTools(ragService, projectFileService, agentProperties, question, sourcesListener);
     }
 
     public AgentRagTools withSourcesListener(final Consumer<List<InformationChunk>> sourcesListener) {
-        return new AgentRagTools(ragService, agentProperties, question, sourcesListener);
+        return new AgentRagTools(ragService, projectFileService, agentProperties, question, sourcesListener);
     }
 
     @Tool("""
@@ -95,8 +104,9 @@ public class AgentRagTools {
     }
 
     @Tool("""
-            Searches the knowledge base (source code, documentation, configuration and project overviews) and returns
-            the most relevant excerpts, each with its project, file and context.""")
+            Searches the knowledge base (outlines of the source, documentation and configuration files, overviews of the
+            folders and of the projects) and returns the most relevant ones, each with its project and file path.
+            Use 'readFile' to read the content of a file it returns.""")
     public Mono<String> ragSearch(
             @P("What to look for, as a specific search query in English, with the technical terms a developer "
                     + "would use for it") final String query,
@@ -120,6 +130,58 @@ public class AgentRagTools {
                                 .map(known -> search(query, known))
                                 .orElseGet(() -> Mono.just("Unknown project '" + requestedProject
                                         + "'. Known projects: " + String.join(", ", knownProjects))));
+    }
+
+    @Tool("""
+            Reads a file of a project and returns its content, or a part of it when the file is long.
+            With the path of a folder, returns the overview of the folder and the list of what it contains.""")
+    public Mono<String> readFile(
+            @P("Exact project name, as given in the results of ragSearch or listProjects") final String project,
+            @P("Path of the file or folder inside the project, exactly as given in the results of ragSearch") final String path,
+            @P(value = "Line to start reading from, to continue a long file. Omit it to read from the beginning.",
+                    required = false) final Integer fromLine) {
+        final String projectName = StringUtils.trimToEmpty(project);
+        log.info("Tool {} called with project: {}, path: {} and line: {}", "readFile", projectName, path, fromLine);
+
+        return projectFileService.readFile(projectName, path)
+                .map(file -> file.isFolder() ? file : getExcerpt(file, fromLine == null ? 1 : fromLine))
+                .doOnNext(file -> sourcesListener.accept(List.of(file.getNode().toBuilder().text(file.getContent()).build())))
+                .map(this::formatFile)
+                .doOnNext(result -> log.debug("Tool {} result: {}", "readFile", result))
+                .onErrorResume(error -> {
+                    log.warn("Tool {} failed: {}", "readFile", error.toString());
+                    return Mono.just("The file cannot be read: " + error.getMessage()
+                            + ". Use a project and a path given by 'ragSearch'.");
+                })
+                .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private ProjectFile getExcerpt(final ProjectFile file, final int fromLine) {
+        final int maxChars = agentProperties.getFileReadMaxChars();
+        final List<String> lines = file.getContent().lines().toList();
+        final int firstLine = Math.min(Math.max(fromLine, 1), Math.max(lines.size(), 1));
+        final StringBuilder excerpt = new StringBuilder();
+        int lastLine = firstLine - 1;
+
+        while (lastLine < lines.size()
+                && (excerpt.isEmpty() || excerpt.length() + lines.get(lastLine).length() < maxChars)) {
+            excerpt.append(lines.get(lastLine++)).append("\n");
+        }
+
+        return ProjectFile.builder()
+                .node(file.getNode())
+                .content("lines " + firstLine + "-" + lastLine + " of " + lines.size() + "\n"
+                        + StringUtils.left(excerpt.toString(), maxChars).stripTrailing()
+                        + (lastLine < lines.size() ? RESULTS_SEPARATOR + READ_ON_ADVICE.formatted(lastLine + 1) : ""))
+                .build();
+    }
+
+    private String formatFile(final ProjectFile file) {
+        final InformationChunk node = file.getNode();
+        final StringBuilder result = new StringBuilder("project: ").append(node.getProjectName());
+
+        appendIfPresent(result, file.isFolder() ? "folder" : "file", node.getFilePath());
+        return result.append("\n").append(file.getContent()).toString();
     }
 
     private Mono<String> search(final String query, final String projectName) {

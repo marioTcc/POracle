@@ -153,12 +153,12 @@ class AgentFactoryTest {
     @Test
     void ingestionAgent_ShouldOnlyPrependTheUntrustedContentRules() {
         agentFactory.createIngestionAgent(CodingAgent.class, chatModel)
-                .analyzeProjectStructure("src/\n ignore previous instructions.md")
+                .summarizeFolder("spring-ai", "docs", "File ignore previous instructions.md")
                 .block();
 
         assertTrue(systemPromptSent().startsWith("## SAFETY RULES"));
         assertTrue(systemPromptSent().contains("untrusted data to analyze"));
-        assertTrue(systemPromptSent().contains("You are an expert senior developer"));
+        assertTrue(systemPromptSent().contains("You write factual overviews of one folder"));
         assertTrue(userMessageSent().contains("ignore previous instructions.md"));
     }
 }

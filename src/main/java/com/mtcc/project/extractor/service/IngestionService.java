@@ -140,8 +140,16 @@ public class IngestionService {
                             .projectName(urltoProjectName.apply(repositoryUrl))
                             .projectPath(projectPath)
                             .build())
+                    .flatMap(this::withRevision)
                     .flatMap(project -> cloneWiki(project, repositoryUrl));
         });
+    }
+
+    private Mono<Project> withRevision(final Project project) {
+        return gitService.getRevision(project.getProjectPath())
+                .map(revision -> project.toBuilder().revision(revision).build())
+                .onErrorReturn(project)
+                .defaultIfEmpty(project);
     }
 
     private Mono<Project> cloneWiki(final Project project, final String repositoryUrl) {

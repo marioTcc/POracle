@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -28,6 +27,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -71,13 +71,12 @@ class ChunkingServiceTest {
         when(chunkingProperties.getCodeFileExtensions()).thenReturn(List.of("java"));
         when(chunkingProperties.getDocsFileExtensions()).thenReturn(List.of("md"));
         when(chunkingProperties.getConfigFileExtensions()).thenReturn(List.of("properties"));
-        when(chunkingProperties.getProjectTreeMaxDepth()).thenReturn(3);
         when(chunkingProperties.getSummaryMaxModules()).thenReturn(40);
         when(chunkingProperties.getSummaryModuleMaxDepth()).thenReturn(3);
         when(chunkingProperties.getSummaryMaxInputChars()).thenReturn(12000);
         when(chunkingProperties.getSecretsRedactionEnabled()).thenReturn(true);
 
-        when(agentService.analyzeProjectStructure(anyString())).thenReturn(Mono.just("A small sample project."));
+        when(agentService.summarizeFolder(anyString(), anyString(), anyString())).thenReturn(Mono.just("It holds sample files."));
         when(agentService.summarizeProject(anyString(), anyString())).thenReturn(Mono.just("It is a sample."));
         when(agentService.summarizeModule(anyString(), anyString(), anyString())).thenReturn(Mono.just("It is a module."));
 
@@ -198,14 +197,87 @@ class ChunkingServiceTest {
     }
 
     @Test
-    void chunkProject_ShouldEmitTheProjectStructureAnalysis() throws IOException {
-        final List<InformationChunk> chunks = chunkProject(file("src/Main.java", "class Main {}"));
+    void chunkProject_ShouldEmitOneOverviewPerFolder_FromTheDeepestToTheRoot() throws IOException {
+        final Path main = file("src/main/java/sample/Main.java", "class Main {}");
+        final Path util = file("src/main/java/sample/util/Strings.java", "class Strings {}");
+        final Path readme = file("README.md", "Sample project documentation.");
+        when(codeChunkingService.chunkFile(project, main, InformationType.CODE))
+                .thenReturn(Flux.just(chunk(main, InformationType.CODE, "class Main\nMethods: main")));
+        when(codeChunkingService.chunkFile(project, util, InformationType.CODE))
+                .thenReturn(Flux.just(chunk(util, InformationType.CODE, "class Strings\nMethods: isBlank")));
+        when(textChunkingService.chunkFile(project, readme, InformationType.DOC))
+                .thenReturn(Flux.just(chunk(readme, InformationType.DOC, "Sample project documentation.")));
+        when(agentService.summarizeFolder(PROJECT_NAME, "src/main/java/sample/util", "File Strings.java\nclass Strings\nMethods: isBlank"))
+                .thenReturn(Mono.just("String helpers."));
 
-        final List<InformationChunk> structure = ofType(chunks, InformationType.PROJECT_STRUCTURE);
-        assertEquals(1, structure.size());
-        assertEquals("A small sample project.", structure.get(0).getText());
-        assertEquals(PROJECT_NAME, structure.get(0).getProjectName());
-        verify(agentService).analyzeProjectStructure(Mockito.contains("Main.java"));
+        final List<InformationChunk> folders = ofType(chunkProject(main, util, readme), InformationType.FOLDER_SUMMARY);
+
+        assertEquals(List.of("src/main/java/sample/util", "src/main/java/sample", ""),
+                folders.stream().map(InformationChunk::getFilePath).toList());
+        assertEquals("""
+                Overview of folder src/main/java/sample/util of project sample-project: String helpers.
+
+                Contents of folder src/main/java/sample/util of project sample-project:
+                - src/main/java/sample/util/Strings.java""", folders.get(0).getText());
+        assertEquals("folder src/main/java/sample/util", folders.get(0).getContext());
+        assertEquals("""
+                Overview of folder / of project sample-project: It holds sample files.
+
+                Contents of folder / of project sample-project:
+                - src/main/java/sample/
+                - README.md""", folders.get(2).getText());
+        assertEquals("project structure", folders.get(2).getContext());
+        verify(agentService).summarizeFolder(PROJECT_NAME, "src/main/java/sample",
+                "Folder src/main/java/sample/util/\nString helpers.\n\nFile Main.java\nclass Main\nMethods: main");
+    }
+
+    @Test
+    void chunkProject_ShouldStillListTheContentsOfAFolder_WhenItsSummaryFails() throws IOException {
+        final Path code = file("src/Main.java", "class Main {}");
+        when(codeChunkingService.chunkFile(project, code, InformationType.CODE))
+                .thenReturn(Flux.just(chunk(code, InformationType.CODE, "class Main {}")));
+        when(agentService.summarizeFolder(anyString(), anyString(), anyString()))
+                .thenReturn(Mono.error(new IllegalStateException("model not available")));
+
+        final List<InformationChunk> folders = ofType(chunkProject(code), InformationType.FOLDER_SUMMARY);
+
+        assertEquals(List.of("Contents of folder src of project sample-project:\n- src/Main.java",
+                        "Contents of folder / of project sample-project:\n- src/"),
+                folders.stream().map(InformationChunk::getText).toList());
+    }
+
+    @Test
+    void chunkProject_ShouldNotSendSecretsToTheFolderSummary() throws IOException {
+        final Path config = file("app.properties", "db.password=s3cr3t");
+        when(textChunkingService.chunkFile(project, config, InformationType.CONFIG))
+                .thenReturn(Flux.just(chunk(config, InformationType.CONFIG, "db.password=s3cr3t")));
+
+        chunkProject(config);
+
+        verify(agentService).summarizeFolder(PROJECT_NAME, "/", "File app.properties\ndb.password=[REDACTED]");
+    }
+
+    @Test
+    void chunkProject_ShouldTellWhereEachFileCanBeReadAgain() throws IOException {
+        project = project.toBuilder().projectUrl("https://github.com/sample/sample-project.git").revision("4f2c9d1")
+                .projectRepoWikiPath(tempDir.resolve("wiki-clone")).build();
+        final Path code = file("src/Main.java", "class Main {}");
+        final Path wikiPage = file("wiki-clone/Home.md", "Welcome.");
+        when(codeChunkingService.chunkFile(project, code, InformationType.CODE))
+                .thenReturn(Flux.just(chunk(code, InformationType.CODE, "class Main {}")));
+        when(textChunkingService.chunkFile(project, wikiPage, InformationType.DOC))
+                .thenReturn(Flux.just(chunk(wikiPage, InformationType.DOC, "Welcome.")));
+
+        final List<InformationChunk> chunks = chunkProject(code, wikiPage);
+
+        final InformationChunk codeOutline = ofType(chunks, InformationType.CODE).get(0);
+        assertEquals(code.toAbsolutePath().normalize().toString(), codeOutline.getLocalPath());
+        assertEquals("https://github.com/sample/sample-project.git", codeOutline.getRepositoryUrl());
+        assertEquals("4f2c9d1", codeOutline.getRevision());
+        final InformationChunk wikiOutline = ofType(chunks, InformationType.DOC).get(0);
+        assertEquals("wiki/Home.md", wikiOutline.getFilePath());
+        assertEquals(wikiPage.toAbsolutePath().normalize().toString(), wikiOutline.getLocalPath());
+        assertNull(wikiOutline.getRepositoryUrl());
     }
 
     @Test
@@ -241,12 +313,14 @@ class ChunkingServiceTest {
     @Test
     void chunkProject_ShouldKeepGoing_WhenASummaryFails() throws IOException {
         final Path rootReadme = file("README.md", "Sample project documentation.");
+        when(textChunkingService.chunkFile(project, rootReadme, InformationType.DOC))
+                .thenReturn(Flux.just(chunk(rootReadme, InformationType.DOC, "Sample project documentation.")));
         when(agentService.summarizeProject(anyString(), anyString()))
                 .thenReturn(Mono.error(new IllegalStateException("model not available")));
 
         final List<InformationChunk> chunks = chunkProject(rootReadme);
 
         assertTrue(ofType(chunks, InformationType.PROJECT_SUMMARY).isEmpty());
-        assertEquals(1, ofType(chunks, InformationType.PROJECT_STRUCTURE).size());
+        assertEquals(1, ofType(chunks, InformationType.FOLDER_SUMMARY).size());
     }
 }
